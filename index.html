@@ -726,10 +726,9 @@
                     // Применяем модификаторы к цели
                     action.modifiers.forEach(modifierId => {
                         const modifier = modifiers.value.find(m => m.id === modifierId);
-                        let luck = (modifier.type === 'luck' && Math.random() < 0.5)
-                        console.log(luck);
-                        if (modifier && (modifier.type === 'temporary' || modifier.type === 'permanent' || luck)) {
+                        if (modifier && (modifier.type === 'temporary' || modifier.type === 'permanent' || (modifier.type === 'luck' && Math.random() < 0.5))) {
                             // Создаем копию модификатора для применения к актору
+                            console.log(modifier);
                             const appliedModifier = {
                                 ...modifier,
                                 id: modifier.id + '_' + Date.now(), // Уникальный ID для экземпляра модификатора
