@@ -474,6 +474,7 @@
                                             <option value="instant">Мгновенный</option>
                                             <option value="temporary">Временный</option>
                                             <option value="permanent">Постоянный</option>
+                                            <option value="random">Случайный</option>
                                         </select>
                                     </div>
                                     
@@ -635,7 +636,8 @@
                     const types = {
                         'instant': 'Мгновенный',
                         'temporary': 'Временный',
-                        'permanent': 'Постоянный'
+                        'permanent': 'Постоянный',
+                        'random': 'Случайный'
                     };
                     return types[type] || type;
                 };
@@ -724,7 +726,7 @@
                     // Применяем модификаторы к цели
                     action.modifiers.forEach(modifierId => {
                         const modifier = modifiers.value.find(m => m.id === modifierId);
-                        if (modifier && (modifier.type === 'temporary' || modifier.type === 'permanent')) {
+                        if (modifier && (modifier.type === 'temporary' || modifier.type === 'permanent' || (modifier.type === 'random' && Math.random() < 0.5))) {
                             // Создаем копию модификатора для применения к актору
                             const appliedModifier = {
                                 ...modifier,
