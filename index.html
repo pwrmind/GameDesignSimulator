@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Design Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/cytoscape/dist/cytoscape.min.js"></script>
+    <style>
+        .health-bar {
+            height: 6px;
+            background: #4ADE80;
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+        .energy-bar {
+            height: 4px;
+            background: #60A5FA;
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity 0.3s ease;
+        }
+        .fade-enter-from, .fade-leave-to {
+            opacity: 0;
+        }
+        .cytoscape-nav {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div id="app" class="min-h-screen flex flex-col">
+        <header class="bg-gradient-to-r from-indigo-700 to-purple-700 text-white p-4 shadow-lg">
+            <div class="container mx-auto flex justify-between items-center">
+                <h1 class="text-2xl font-bold"><i class="fas fa-gamepad mr-2"></i>Game Design Simulator</h1>
+                <div class="text-sm bg-indigo-800 px-3 py-1 rounded-full">
+                    <i class="fas fa-code-branch mr-1"></i> v1.0
+                </div>
+            </div>
+        </header>
+
+        <main class="flex flex-1 overflow-hidden">
+            <!-- Визуальная панель -->
+            <div class="flex-1 p-4 border-r border-gray-300 relative">
+                <div class="cytoscape-nav">
+                    <button @click="fitGraph" class="bg-white text-gray-700 p-2 rounded shadow mr-2 hover:bg-gray-100">
+                        <i class="fas fa-expand"></i>
+                    </button>
+                    <button @click="resetView" class="bg-white text-gray-700 p-2 rounded shadow hover:bg-gray-100">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+                <div id="cy" class="w-full h-full bg-white rounded-lg shadow"></div>
+                
+                <!-- Статус графа -->
+                <div class="absolute bottom-4 left-4 bg-white bg-opacity-90 p-3 rounded shadow text-sm">
+                    <div class="font-medium mb-1">Статус графа</div>
+                    <div>Узлов: {{ actors.length }}, Связей: {{ actions.length }}</div>
+                </div>
+            </div>
+            
+            <!-- Панель управления -->
+            <div class="w-1/3 flex flex-col min-w-96">
+                <!-- Управление симуляцией -->
+                <div class="p-4 border-b border-gray-300 bg-white">
+                    <h2 class="text-lg font-semibold mb-3 flex items-center">
+                        <i class="fas fa-play-circle mr-2 text-indigo-600"></i>Управление симуляцией
+                    </h2>
+                    
+                    <div class="flex space-x-2 mb-4">
+                        <button @click="startSimulation" 
+                                :disabled="gameState.isRunning"
+                                class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded flex items-center disabled:bg-green-300 transition-colors">
+                            <i class="fas fa-play mr-2"></i>Старт
+                        </button>
+                        <button @click="pauseSimulation" 
+                                :disabled="!gameState.isRunning"
+                                class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded flex items-center disabled:bg-yellow-300 transition-colors">
+                            <i class="fas fa-pause mr-2"></i>Пауза
+                        </button>
+                        <button @click="stepSimulation" 
+                                :disabled="gameState.isRunning"
+                                class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded flex items-center disabled:bg-blue-300 transition-colors">
+                            <i class="fas fa-step-forward mr-2"></i>Шаг
+                        </button>
+                        <button @click="resetSimulation" 
+                                class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded flex items-center transition-colors">
+                            <i class="fas fa-stop mr-2"></i>Сброс
+                        </button>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium mb-1 text-gray-700">Скорость симуляции:</label>
+                        <input type="range" min="100" max="3000" step="100" v-model="gameState.simulationSpeed" 
+                               class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        <div class="flex justify-between text-xs text-gray-600 mt-1">
+                            <span>Быстрее</span>
+                            <span class="font-medium">{{ gameState.simulationSpeed }} мс</span>
+                            <span>Медленнее</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Статус симуляции -->
+                    <div class="bg-gradient-to-r from-gray-50 to-gray-100 p-3 rounded border border-gray-200">
+                        <div class="grid grid-cols-2 gap-2 text-sm">
+                            <div class="flex justify-between">
+                                <span class="font-medium text-gray-700">Текущий ход:</span>
+                                <span class="font-bold text-indigo-700">{{ gameState.currentTurn }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium text-gray-700">Статус:</span>
+                                <span :class="gameState.isRunning ? 'text-green-600 font-semibold' : 'text-gray-600'">
+                                    {{ gameState.isRunning ? 'Выполняется' : 'Остановлена' }}
+                                </span>
+                            </div>
+                            <div class="flex justify-between col-span-2" v-if="gameState.currentActor">
+                                <span class="font-medium text-gray-700">Активный актор:</span>
+                                <span class="font-bold text-purple-700">{{ getActorName(gameState.currentActor) }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Основной контент -->
+                <div class="flex-1 overflow-y-auto bg-white">
+                    <!-- История симуляции -->
+                    <div class="p-4 border-b border-gray-300">
+                        <h2 class="text-lg font-semibold mb-3 flex items-center">
+                            <i class="fas fa-history mr-2 text-indigo-600"></i>История симуляции
+                        </h2>
+                        <div class="bg-gray-50 p-3 rounded border border-gray-200 max-h-40 overflow-y-auto">
+                            <div v-if="simulationHistory.length === 0" class="text-gray-500 text-center py-4">
+                                <i class="fas fa-info-circle mb-2 text-xl"></i>
+                                <div>История симуляции пуста</div>
+                            </div>
+                            <div v-else class="space-y-2">
+                                <div v-for="(entry, index) in simulationHistory.slice().reverse().slice(0, 10)" 
+                                     :key="index" 
+                                     class="text-sm py-2 px-3 bg-white rounded border border-gray-100 hover:bg-gray-50 transition-colors">
+                                    <div class="flex items-start">
+                                        <i class="fas fa-circle text-xs mt-1 mr-2 text-indigo-500 flex-shrink-0"></i>
+                                        <span>{{ entry }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Конструктор -->
+                    <div class="p-4">
+                        <h2 class="text-lg font-semibold mb-3 flex items-center">
+                            <i class="fas fa-tools mr-2 text-indigo-600"></i>Конструктор
+                        </h2>
+                        
+                        <!-- Вкладки конструктора -->
+                        <div class="border-b border-gray-200 mb-4">
+                            <nav class="-mb-px flex space-x-4">
+                                <button 
+                                    @click="activeConstructorTab = 'actors'"
+                                    :class="activeConstructorTab === 'actors' 
+                                        ? 'border-indigo-500 text-indigo-600' 
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                    class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors flex items-center">
+                                    <i class="fas fa-user mr-1"></i> Акторы
+                                </button>
+                                <button 
+                                    @click="activeConstructorTab = 'actions'"
+                                    :class="activeConstructorTab === 'actions' 
+                                        ? 'border-indigo-500 text-indigo-600' 
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                    class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors flex items-center">
+                                    <i class="fas fa-bolt mr-1"></i> Действия
+                                </button>
+                                <button 
+                                    @click="activeConstructorTab = 'modifiers'"
+                                    :class="activeConstructorTab === 'modifiers' 
+                                        ? 'border-indigo-500 text-indigo-600' 
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                    class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors flex items-center">
+                                    <i class="fas fa-magic mr-1"></i> Модификаторы
+                                </button>
+                            </nav>
+                        </div>
+                        
+                        <!-- Конструктор акторов -->
+                        <div v-if="activeConstructorTab === 'actors'" class="space-y-4">
+                            <div class="flex justify-between items-center">
+                                <h3 class="font-medium text-gray-800">Список акторов</h3>
+                                <button @click="showActorForm = true" 
+                                        class="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded text-sm flex items-center transition-colors">
+                                    <i class="fas fa-plus mr-1"></i> Добавить
+                                </button>
+                            </div>
+                            
+                            <!-- Форма создания/редактирования актора -->
+                            <div v-if="showActorForm" class="bg-gray-50 p-4 rounded border border-gray-200 transition-all">
+                                <h4 class="font-medium mb-3 text-gray-800 flex items-center">
+                                    <i class="fas fa-edit mr-2 text-indigo-600"></i>
+                                    {{ editingActor ? 'Редактирование актора' : 'Создание актора' }}
+                                </h4>
+                                
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1 text-gray-700">Имя актора:</label>
+                                        <input v-model="actorForm.name" type="text" 
+                                               class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition">
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1 text-gray-700">Тип:</label>
+                                        <select v-model="actorForm.type" 
+                                                class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition">
+                                            <option value="player">Игрок</option>
+                                            <option value="enemy">Враг</option>
+                                            <option value="world">Мир</option>
+                                            <option value="other">Другой</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1 text-gray-700">Параметры (JSON):</label>
+                                        <textarea v-model="actorForm.parameters" 
+                                                  class="w-full p-2 border border-gray-300 rounded h-20 font-mono text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition"
+                                                  placeholder='{"health": 100, "energy": 50, "attack": 10}'></textarea>
+                                        <div class="text-xs text-gray-500 mt-1">Используйте JSON формат для задания параметров</div>
+                                    </div>
+                                    
+                                    <div class="flex space-x-2 pt-2">
+                                        <button @click="saveActor" 
+                                                class="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded flex-1 flex items-center justify-center transition-colors">
+                                            <i class="fas fa-save mr-1"></i> {{ editingActor ? 'Обновить' : 'Создать' }}
+                                        </button>
+                                        <button @click="cancelActorEdit" 
+                                                class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded flex-1 flex items-center justify-center transition-colors">
+                                            <i class="fas fa-times mr-1"></i> Отмена
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Список акторов -->
+                            <div class="space-y-3 max-h-60 overflow-y-auto pr-1">
+                                <div v-for="actor in actors" :key="actor.id" 
+                                     class="p-3 border border-gray-200 rounded-lg transition-all hover:shadow-md"
+                                     :class="gameState.selectedActor?.id === actor.id ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-200' : 'bg-white'">
+                                    <div class="flex justify-between items-start">
+                                        <div class="flex-1">
+                                            <div class="font-medium text-gray-800 flex items-center">
+                                                <i class="fas fa-user mr-2" :class="{
+                                                    'text-green-500': actor.type === 'player',
+                                                    'text-red-500': actor.type === 'enemy',
+                                                    'text-blue-500': actor.type === 'world',
+                                                    'text-purple-500': actor.type === 'other'
+                                                }"></i>
+                                                {{ actor.name }}
+                                                <span class="ml-2 text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded-full">
+                                                    {{ actor.type }}
+                                                </span>
+                                            </div>
+                                            <div class="mt-2 space-y-1">
+                                                <div v-for="(value, key) in actor.parameters" :key="key" 
+                                                     class="text-xs flex justify-between items-center">
+                                                    <span class="text-gray-600 capitalize">{{ key }}:</span>
+                                                    <span :class="getParameterClass(value)" class="font-medium">
+                                                        {{ value }}
+                                                        <span v-if="key === 'health' && actor.parameters.maxHealth" class="text-gray-400">
+                                                            / {{ actor.parameters.maxHealth }}
+                                                        </span>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="flex space-x-1 ml-2">
+                                            <button @click="editActor(actor)" 
+                                                    class="text-blue-500 hover:text-blue-700 p-1 rounded transition-colors">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button @click="deleteActor(actor.id)" 
+                                                    class="text-red-500 hover:text-red-700 p-1 rounded transition-colors">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Конструктор действий -->
+                        <div v-if="activeConstructorTab === 'actions'" class="space-y-4">
+                            <div class="flex justify-between items-center">
+                                <h3 class="font-medium text-gray-800">Список действий</h3>
+                                <button @click="showActionForm = true" 
+                                        class="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded text-sm flex items-center transition-colors">
+                                    <i class="fas fa-plus mr-1"></i> Добавить
+                                </button>
+                            </div>
+                            
+                            <!-- Форма создания/редактирования действия -->
+                            <div v-if="showActionForm" class="bg-gray-50 p-4 rounded border border-gray-200 transition-all">
+                                <h4 class="font-medium mb-3 text-gray-800 flex items-center">
+                                    <i class="fas fa-edit mr-2 text-indigo-600"></i>
+                                    {{ editingAction ? 'Редактирование действия' : 'Создание действия' }}
+                                </h4>
+                                
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1 text-gray-700">Название действия:</label>
+                                        <input v-model="actionForm.name" type="text" 
+                                               class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition">
+                                    </div>
+                                    
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-sm font-medium mb-1 text-gray-700">Источник:</label>
+                                            <select v-model="actionForm.source" 
+                                                    class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition">
+                                                <option value="">Выберите источник</option>
+                                                <option v-for="actor in actors" :key="actor.id" :value="actor.id">
+                                                    {{ actor.name }}
+                                                </option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div>
+                                            <label class="block text-sm font-medium mb-1 text-gray-700">Цель:</label>
+                                            <select v-model="actionForm.target" 
+                                                    class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition">
+                                                <option value="">Выберите цель</option>
+                                                <option v-for="actor in actors" :key="actor.id" :value="actor.id">
+                                                    {{ actor.name }}
+                                                </option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1 text-gray-700">Базовое значение:</label>
+                                        <input v-model="actionForm.baseValue" type="number" 
+                                               class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition">
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1 text-gray-700">Модификаторы:</label>
+                                        <div class="border border-gray-200 rounded p-2 bg-white max-h-32 overflow-y-auto">
+                                            <div v-if="modifiers.length === 0" class="text-gray-500 text-center py-2 text-sm">
+                                                Нет доступных модификаторов
+                                            </div>
+                                            <div v-else class="space-y-2">
+                                                <div v-for="modifier in modifiers" :key="modifier.id" 
+                                                     class="flex items-center p-2 hover:bg-gray-50 rounded transition-colors">
+                                                    <input :id="`modifier-${modifier.id}`" type="checkbox" 
+                                                           :value="modifier.id" v-model="actionForm.modifiers"
+                                                           class="mr-3 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                                                    <label :for="`modifier-${modifier.id}`" class="text-sm flex-1">
+                                                        <div class="font-medium">{{ modifier.name }}</div>
+                                                        <div class="text-xs text-gray-500">
+                                                            {{ modifier.targetParameter }}: 
+                                                            <span :class="modifier.value > 0 ? 'text-green-600' : 'text-red-600'">
+                                                                {{ modifier.value > 0 ? '+' : '' }}{{ modifier.value }}
+                                                            </span>
+                                                        </div>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex space-x-2 pt-2">
+                                        <button @click="saveAction" 
+                                                class="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded flex-1 flex items-center justify-center transition-colors">
+                                            <i class="fas fa-save mr-1"></i> {{ editingAction ? 'Обновить' : 'Создать' }}
+                                        </button>
+                                        <button @click="cancelActionEdit" 
+                                                class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded flex-1 flex items-center justify-center transition-colors">
+                                            <i class="fas fa-times mr-1"></i> Отмена
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Список действий -->
+                            <div class="space-y-3 max-h-60 overflow-y-auto pr-1">
+                                <div v-for="action in actions" :key="action.id" 
+                                     class="p-3 border border-gray-200 rounded-lg transition-all hover:shadow-md"
+                                     :class="gameState.selectedAction?.id === action.id ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-200' : 'bg-white'">
+                                    <div class="flex justify-between items-start">
+                                        <div class="flex-1">
+                                            <div class="font-medium text-gray-800 flex items-center">
+                                                <i class="fas fa-bolt mr-2 text-yellow-500"></i>
+                                                {{ action.name }}
+                                            </div>
+                                            <div class="mt-2 text-sm text-gray-600">
+                                                <div class="flex items-center">
+                                                    <span class="font-medium text-green-600">{{ getActorName(action.source) }}</span>
+                                                    <i class="fas fa-arrow-right mx-2 text-gray-400 text-xs"></i>
+                                                    <span class="font-medium text-red-600">{{ getActorName(action.target) }}</span>
+                                                </div>
+                                                <div class="mt-1 flex items-center space-x-4">
+                                                    <span class="text-gray-700">
+                                                        Значение: <span class="font-bold">{{ action.baseValue }}</span>
+                                                    </span>
+                                                    <span v-if="action.modifiers.length > 0" class="text-indigo-600">
+                                                        Модификаторы: <span class="font-bold">{{ action.modifiers.length }}</span>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="flex space-x-1 ml-2">
+                                            <button @click="editAction(action)" 
+                                                    class="text-blue-500 hover:text-blue-700 p-1 rounded transition-colors">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button @click="deleteAction(action.id)" 
+                                                    class="text-red-500 hover:text-red-700 p-1 rounded transition-colors">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Конструктор модификаторов -->
+                        <div v-if="activeConstructorTab === 'modifiers'" class="space-y-4">
+                            <div class="flex justify-between items-center">
+                                <h3 class="font-medium text-gray-800">Список модификаторов</h3>
+                                <button @click="showModifierForm = true" 
+                                        class="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded text-sm flex items-center transition-colors">
+                                    <i class="fas fa-plus mr-1"></i> Добавить
+                                </button>
+                            </div>
+                            
+                            <!-- Форма создания/редактирования модификатора -->
+                            <div v-if="showModifierForm" class="bg-gray-50 p-4 rounded border border-gray-200 transition-all">
+                                <h4 class="font-medium mb-3 text-gray-800 flex items-center">
+                                    <i class="fas fa-edit mr-2 text-indigo-600"></i>
+                                    {{ editingModifier ? 'Редактирование модификатора' : 'Создание модификатора' }}
+                                </h4>
+                                
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1 text-gray-700">Название модификатора:</label>
+                                        <input v-model="modifierForm.name" type="text" 
+                                               class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition">
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1 text-gray-700">Целевой параметр:</label>
+                                        <input v-model="modifierForm.targetParameter" type="text" 
+                                               class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition" 
+                                               placeholder="health, energy, attack, defense...">
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1 text-gray-700">Значение:</label>
+                                        <input v-model="modifierForm.value" type="number" 
+                                               class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition">
+                                        <div class="text-xs text-gray-500 mt-1">
+                                            Отрицательное значение для дебаффа, положительное для баффа
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1 text-gray-700">Тип:</label>
+                                        <select v-model="modifierForm.type" 
+                                                class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition">
+                                            <option value="instant">Мгновенный</option>
+                                            <option value="temporary">Временный</option>
+                                            <option value="permanent">Постоянный</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div v-if="modifierForm.type === 'temporary'">
+                                        <label class="block text-sm font-medium mb-1 text-gray-700">Длительность (ходы):</label>
+                                        <input v-model="modifierForm.duration" type="number" min="1"
+                                               class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 transition">
+                                    </div>
+                                    
+                                    <div class="flex space-x-2 pt-2">
+                                        <button @click="saveModifier" 
+                                                class="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded flex-1 flex items-center justify-center transition-colors">
+                                            <i class="fas fa-save mr-1"></i> {{ editingModifier ? 'Обновить' : 'Создать' }}
+                                        </button>
+                                        <button @click="cancelModifierEdit" 
+                                                class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded flex-1 flex items-center justify-center transition-colors">
+                                            <i class="fas fa-times mr-1"></i> Отмена
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Список модификаторов -->
+                            <div class="space-y-3 max-h-60 overflow-y-auto pr-1">
+                                <div v-for="modifier in modifiers" :key="modifier.id" 
+                                     class="p-3 border border-gray-200 rounded-lg transition-all hover:shadow-md bg-white">
+                                    <div class="flex justify-between items-start">
+                                        <div class="flex-1">
+                                            <div class="font-medium text-gray-800 flex items-center">
+                                                <i class="fas fa-magic mr-2" :class="{
+                                                    'text-green-500': modifier.value > 0,
+                                                    'text-red-500': modifier.value < 0,
+                                                    'text-blue-500': modifier.value === 0
+                                                }"></i>
+                                                {{ modifier.name }}
+                                                <span class="ml-2 text-xs px-2 py-1 rounded-full" 
+                                                      :class="{
+                                                          'bg-green-100 text-green-800': modifier.value > 0,
+                                                          'bg-red-100 text-red-800': modifier.value < 0,
+                                                          'bg-blue-100 text-blue-800': modifier.value === 0
+                                                      }">
+                                                    {{ modifier.value > 0 ? 'БАФФ' : modifier.value < 0 ? 'ДЕБАФФ' : 'НЕЙТРАЛЬНЫЙ' }}
+                                                </span>
+                                            </div>
+                                            <div class="mt-2 text-sm text-gray-600 space-y-1">
+                                                <div>
+                                                    <span class="font-medium">Параметр:</span> 
+                                                    <span class="text-gray-800">{{ modifier.targetParameter }}</span>
+                                                </div>
+                                                <div>
+                                                    <span class="font-medium">Значение:</span> 
+                                                    <span :class="modifier.value > 0 ? 'text-green-600 font-bold' : 'text-red-600 font-bold'">
+                                                        {{ modifier.value > 0 ? '+' : '' }}{{ modifier.value }}
+                                                    </span>
+                                                </div>
+                                                <div>
+                                                    <span class="font-medium">Тип:</span> 
+                                                    <span class="text-gray-800">{{ getModifierTypeName(modifier.type) }}</span>
+                                                    <span v-if="modifier.type === 'temporary'" class="text-orange-600 ml-1">
+                                                        ({{ modifier.duration }} ходов)
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="flex space-x-1 ml-2">
+                                            <button @click="editModifier(modifier)" 
+                                                    class="text-blue-500 hover:text-blue-700 p-1 rounded transition-colors">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button @click="deleteModifier(modifier.id)" 
+                                                    class="text-red-500 hover:text-red-700 p-1 rounded transition-colors">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, computed, onMounted, watch } = Vue;
+        
+        createApp({
+            setup() {
+                const gameState = reactive({
+                    isRunning: false,
+                    currentTurn: 0,
+                    selectedActor: null,
+                    selectedAction: null,
+                    simulationSpeed: 1000,
+                    simulationInterval: null,
+                    currentActor: null,
+                    turnQueue: []
+                });
+                
+                const actors = ref([
+                    { id: 'player', name: 'Игрок', type: 'player', parameters: { health: 100, energy: 50, attack: 10, defense: 5 }, activeModifiers: [] },
+                    { id: 'enemy', name: 'Враг', type: 'enemy', parameters: { health: 80, energy: 40, attack: 8, defense: 3 }, activeModifiers: [] },
+                    { id: 'world', name: 'Мир', type: 'world', parameters: { resources: 100 }, activeModifiers: [] }
+                ]);
+                
+                const actions = ref([
+                    { id: 'attack1', name: 'Атака мечом', source: 'player', target: 'enemy', baseValue: 15, modifiers: ['damage_buff'] },
+                    { id: 'heal1', name: 'Лечение', source: 'player', target: 'player', baseValue: 10, modifiers: ['heal_buff'] },
+                    { id: 'fireball', name: 'Огненный шар', source: 'enemy', target: 'player', baseValue: 20, modifiers: ['burn_debuff'] }
+                ]);
+                
+                const modifiers = ref([
+                    { id: 'damage_buff', name: 'Усиление атаки', targetParameter: 'attack', value: 5, type: 'temporary', duration: 3 },
+                    { id: 'heal_buff', name: 'Усиление лечения', targetParameter: 'energy', value: 5, type: 'instant', duration: 0 },
+                    { id: 'burn_debuff', name: 'Горение', targetParameter: 'health', value: -2, type: 'temporary', duration: 3 }
+                ]);
+                
+                const simulationHistory = ref([]);
+                const activeConstructorTab = ref('actors');
+                let cy = null;
+                
+                // Формы для конструктора
+                const showActorForm = ref(false);
+                const editingActor = ref(null);
+                const actorForm = reactive({
+                    name: '',
+                    type: 'player',
+                    parameters: '{\n  "health": 100,\n  "energy": 50,\n  "attack": 10,\n  "defense": 5\n}'
+                });
+                
+                const showActionForm = ref(false);
+                const editingAction = ref(null);
+                const actionForm = reactive({
+                    name: '',
+                    source: '',
+                    target: '',
+                    baseValue: 0,
+                    modifiers: []
+                });
+                
+                const showModifierForm = ref(false);
+                const editingModifier = ref(null);
+                const modifierForm = reactive({
+                    name: '',
+                    targetParameter: '',
+                    value: 0,
+                    type: 'instant',
+                    duration: 0
+                });
+                
+                // Вспомогательные методы
+                const getActorName = (actorId) => {
+                    const actor = actors.value.find(a => a.id === actorId);
+                    return actor ? actor.name : actorId;
+                };
+                
+                const getModifierTypeName = (type) => {
+                    const types = {
+                        'instant': 'Мгновенный',
+                        'temporary': 'Временный',
+                        'permanent': 'Постоянный'
+                    };
+                    return types[type] || type;
+                };
+                
+                const getParameterClass = (value) => {
+                    if (value <= 0) return 'text-red-600 font-bold';
+                    if (value < 30) return 'text-orange-600';
+                    return 'text-gray-700';
+                };
+                
+                // Логика симуляции
+                const initializeSimulation = () => {
+                    // Создаем очередь ходов
+                    gameState.turnQueue = actors.value
+                        .filter(actor => actor.type === 'player' || actor.type === 'enemy')
+                        .map(actor => actor.id);
+                    
+                    if (gameState.turnQueue.length > 0) {
+                        gameState.currentActor = gameState.turnQueue[0];
+                    }
+                };
+                
+                const processTurn = () => {
+                    if (!gameState.currentActor) {
+                        initializeSimulation();
+                    }
+                    
+                    const currentActorId = gameState.currentActor;
+                    const currentActor = actors.value.find(a => a.id === currentActorId);
+                    
+                    if (!currentActor) return;
+                    
+                    // Получаем доступные действия для текущего актора
+                    const availableActions = actions.value.filter(action => action.source === currentActorId);
+                    
+                    if (availableActions.length > 0) {
+                        // Выбираем случайное действие (можно заменить на более сложную логику)
+                        const randomAction = availableActions[Math.floor(Math.random() * availableActions.length)];
+                        executeAction(randomAction);
+                    } else {
+                        simulationHistory.value.push(`Ход ${gameState.currentTurn}: ${currentActor.name} не имеет доступных действий`);
+                    }
+                    
+                    // Обновляем модификаторы для всех акторов
+                    updateModifiers();
+                    
+                    // Переходим к следующему актору в очереди
+                    const currentIndex = gameState.turnQueue.indexOf(currentActorId);
+                    const nextIndex = (currentIndex + 1) % gameState.turnQueue.length;
+                    gameState.currentActor = gameState.turnQueue[nextIndex];
+                };
+                
+                const executeAction = (action) => {
+                    const sourceActor = actors.value.find(a => a.id === action.source);
+                    const targetActor = actors.value.find(a => a.id === action.target);
+                    
+                    if (!sourceActor || !targetActor) return;
+                    
+                    // Вычисляем итоговое значение действия с учетом модификаторов
+                    let finalValue = action.baseValue;
+                    
+                    // Применяем модификаторы к значению действия
+                    action.modifiers.forEach(modifierId => {
+                        const modifier = modifiers.value.find(m => m.id === modifierId);
+                        if (modifier && modifier.type === 'instant') {
+                            finalValue += modifier.value;
+                        }
+                    });
+                    
+                    // Применяем действие к целевому параметру
+                    // Для простоты предполагаем, что действие влияет на здоровье
+                    // В реальной реализации нужно определить, какой параметр изменяется
+                    const targetParameter = 'health';
+                    
+                    // Вычисляем итоговое изменение с учетом защиты
+                    let change = finalValue;
+                    if (targetActor.parameters.defense !== undefined) {
+                        change = Math.max(0, finalValue - targetActor.parameters.defense);
+                    }
+                    
+                    // Применяем изменение
+                    if (targetActor.parameters[targetParameter] !== undefined) {
+                        targetActor.parameters[targetParameter] -= change;
+                    }
+                    
+                    // Применяем модификаторы к цели
+                    action.modifiers.forEach(modifierId => {
+                        const modifier = modifiers.value.find(m => m.id === modifierId);
+                        if (modifier && (modifier.type === 'temporary' || modifier.type === 'permanent')) {
+                            // Создаем копию модификатора для применения к актору
+                            const appliedModifier = {
+                                ...modifier,
+                                id: modifier.id + '_' + Date.now(), // Уникальный ID для экземпляра модификатора
+                                remainingDuration: modifier.duration
+                            };
+                            
+                            targetActor.activeModifiers.push(appliedModifier);
+                            
+                            // Немедленно применяем эффект модификатора
+                            if (targetActor.parameters[appliedModifier.targetParameter] !== undefined) {
+                                targetActor.parameters[appliedModifier.targetParameter] += appliedModifier.value;
+                            }
+                        }
+                    });
+                    
+                    simulationHistory.value.push(`Ход ${gameState.currentTurn}: ${sourceActor.name} использует "${action.name}" на ${targetActor.name} (изменение: ${change})`);
+                    
+                    // Проверяем условия окончания боя
+                    checkEndConditions();
+                };
+                
+                const updateModifiers = () => {
+                    actors.value.forEach(actor => {
+                        // Обновляем длительность модификаторов и удаляем истекшие
+                        actor.activeModifiers = actor.activeModifiers.filter(modifier => {
+                            if (modifier.type === 'temporary') {
+                                modifier.remainingDuration--;
+                                
+                                if (modifier.remainingDuration <= 0) {
+                                    // Удаляем эффект модификатора
+                                    if (actor.parameters[modifier.targetParameter] !== undefined) {
+                                        actor.parameters[modifier.targetParameter] -= modifier.value;
+                                    }
+                                    return false;
+                                }
+                            }
+                            return true;
+                        });
+                    });
+                };
+                
+                const checkEndConditions = () => {
+                    const player = actors.value.find(a => a.id === 'player');
+                    const enemy = actors.value.find(a => a.id === 'enemy');
+                    
+                    if (player && player.parameters.health <= 0) {
+                        simulationHistory.value.push(`Ход ${gameState.currentTurn}: Игрок побежден!`);
+                        pauseSimulation();
+                        return true;
+                    }
+                    
+                    if (enemy && enemy.parameters.health <= 0) {
+                        simulationHistory.value.push(`Ход ${gameState.currentTurn}: Враг побежден!`);
+                        pauseSimulation();
+                        return true;
+                    }
+                    
+                    return false;
+                };
+                
+                // Методы для работы с акторами
+                const editActor = (actor) => {
+                    editingActor.value = actor;
+                    actorForm.name = actor.name;
+                    actorForm.type = actor.type;
+                    actorForm.parameters = JSON.stringify(actor.parameters, null, 2);
+                    showActorForm.value = true;
+                };
+                
+                const saveActor = () => {
+                    try {
+                        const parameters = JSON.parse(actorForm.parameters);
+                        
+                        if (editingActor.value) {
+                            // Обновление существующего актора
+                            const index = actors.value.findIndex(a => a.id === editingActor.value.id);
+                            if (index !== -1) {
+                                actors.value[index] = {
+                                    ...actors.value[index],
+                                    name: actorForm.name,
+                                    type: actorForm.type,
+                                    parameters: parameters
+                                };
+                            }
+                        } else {
+                            // Создание нового актора
+                            const newId = 'actor_' + Date.now();
+                            actors.value.push({
+                                id: newId,
+                                name: actorForm.name,
+                                type: actorForm.type,
+                                parameters: parameters,
+                                activeModifiers: []
+                            });
+                        }
+                        
+                        cancelActorEdit();
+                        updateCytoscape();
+                    } catch (e) {
+                        alert('Ошибка в формате параметров JSON: ' + e.message);
+                    }
+                };
+                
+                const deleteActor = (actorId) => {
+                    if (confirm('Вы уверены, что хотите удалить этого актора?')) {
+                        // Удаляем актора
+                        actors.value = actors.value.filter(a => a.id !== actorId);
+                        
+                        // Удаляем связанные действия
+                        actions.value = actions.value.filter(a => a.source !== actorId && a.target !== actorId);
+                        
+                        updateCytoscape();
+                    }
+                };
+                
+                const cancelActorEdit = () => {
+                    showActorForm.value = false;
+                    editingActor.value = null;
+                    actorForm.name = '';
+                    actorForm.type = 'player';
+                    actorForm.parameters = '{\n  "health": 100,\n  "energy": 50,\n  "attack": 10,\n  "defense": 5\n}';
+                };
+                
+                // Методы для работы с действиями
+                const editAction = (action) => {
+                    editingAction.value = action;
+                    actionForm.name = action.name;
+                    actionForm.source = action.source;
+                    actionForm.target = action.target;
+                    actionForm.baseValue = action.baseValue;
+                    actionForm.modifiers = [...action.modifiers];
+                    showActionForm.value = true;
+                };
+                
+                const saveAction = () => {
+                    if (editingAction.value) {
+                        // Обновление существующего действия
+                        const index = actions.value.findIndex(a => a.id === editingAction.value.id);
+                        if (index !== -1) {
+                            actions.value[index] = {
+                                ...actions.value[index],
+                                name: actionForm.name,
+                                source: actionForm.source,
+                                target: actionForm.target,
+                                baseValue: actionForm.baseValue,
+                                modifiers: actionForm.modifiers
+                            };
+                        }
+                    } else {
+                        // Создание нового действия
+                        const newId = 'action_' + Date.now();
+                        actions.value.push({
+                            id: newId,
+                            name: actionForm.name,
+                            source: actionForm.source,
+                            target: actionForm.target,
+                            baseValue: actionForm.baseValue,
+                            modifiers: actionForm.modifiers
+                        });
+                    }
+                    
+                    cancelActionEdit();
+                    updateCytoscape();
+                };
+                
+                const deleteAction = (actionId) => {
+                    if (confirm('Вы уверены, что хотите удалить это действие?')) {
+                        actions.value = actions.value.filter(a => a.id !== actionId);
+                        updateCytoscape();
+                    }
+                };
+                
+                const cancelActionEdit = () => {
+                    showActionForm.value = false;
+                    editingAction.value = null;
+                    actionForm.name = '';
+                    actionForm.source = '';
+                    actionForm.target = '';
+                    actionForm.baseValue = 0;
+                    actionForm.modifiers = [];
+                };
+                
+                // Методы для работы с модификаторами
+                const editModifier = (modifier) => {
+                    editingModifier.value = modifier;
+                    modifierForm.name = modifier.name;
+                    modifierForm.targetParameter = modifier.targetParameter;
+                    modifierForm.value = modifier.value;
+                    modifierForm.type = modifier.type;
+                    modifierForm.duration = modifier.duration || 0;
+                    showModifierForm.value = true;
+                };
+                
+                const saveModifier = () => {
+                    if (editingModifier.value) {
+                        // Обновление существующего модификатора
+                        const index = modifiers.value.findIndex(m => m.id === editingModifier.value.id);
+                        if (index !== -1) {
+                            modifiers.value[index] = {
+                                ...modifiers.value[index],
+                                name: modifierForm.name,
+                                targetParameter: modifierForm.targetParameter,
+                                value: modifierForm.value,
+                                type: modifierForm.type,
+                                duration: modifierForm.type === 'temporary' ? modifierForm.duration : 0
+                            };
+                        }
+                    } else {
+                        // Создание нового модификатора
+                        const newId = 'modifier_' + Date.now();
+                        modifiers.value.push({
+                            id: newId,
+                            name: modifierForm.name,
+                            targetParameter: modifierForm.targetParameter,
+                            value: modifierForm.value,
+                            type: modifierForm.type,
+                            duration: modifierForm.type === 'temporary' ? modifierForm.duration : 0
+                        });
+                    }
+                    
+                    cancelModifierEdit();
+                };
+                
+                const deleteModifier = (modifierId) => {
+                    if (confirm('Вы уверены, что хотите удалить этот модификатор?')) {
+                        // Удаляем модификатор
+                        modifiers.value = modifiers.value.filter(m => m.id !== modifierId);
+                        
+                        // Удаляем ссылки на модификатор из действий
+                        actions.value.forEach(action => {
+                            action.modifiers = action.modifiers.filter(m => m !== modifierId);
+                        });
+                    }
+                };
+                
+                const cancelModifierEdit = () => {
+                    showModifierForm.value = false;
+                    editingModifier.value = null;
+                    modifierForm.name = '';
+                    modifierForm.targetParameter = '';
+                    modifierForm.value = 0;
+                    modifierForm.type = 'instant';
+                    modifierForm.duration = 0;
+                };
+                
+                // Инициализация и обновление Cytoscape
+                const initCytoscape = () => {
+                    updateCytoscape();
+                };
+                
+                const updateCytoscape = () => {
+                    if (!cy) {
+                        // Инициализация Cytoscape
+                        cy = cytoscape({
+                            container: document.getElementById('cy'),
+                            elements: [],
+                            style: [
+                                {
+                                    selector: 'node',
+                                    style: {
+                                        'background-color': function(ele) {
+                                            const type = ele.data('type');
+                                            if (type === 'player') return '#10B981';
+                                            if (type === 'enemy') return '#EF4444';
+                                            if (type === 'world') return '#6B7280';
+                                            return '#8B5CF6';
+                                        },
+                                        'label': 'data(name)',
+                                        'width': 80,
+                                        'height': 80,
+                                        'font-size': '14px',
+                                        'text-valign': 'bottom',
+                                        'text-halign': 'center',
+                                        'color': '#374151',
+                                        'text-outline-width': 2,
+                                        'text-outline-color': '#ffffff'
+                                    }
+                                },
+                                {
+                                    selector: 'edge',
+                                    style: {
+                                        'width': 3,
+                                        'line-color': '#6366F1',
+                                        'target-arrow-color': '#6366F1',
+                                        'target-arrow-shape': 'triangle',
+                                        'curve-style': 'bezier',
+                                        'label': 'data(name)',
+                                        'font-size': '12px',
+                                        'color': '#374151',
+                                        'text-outline-width': 2,
+                                        'text-outline-color': '#ffffff',
+                                        'text-rotation': 'autorotate'
+                                    }
+                                },
+                                {
+                                    selector: '.highlighted',
+                                    style: {
+                                        'background-color': '#F59E0B',
+                                        'line-color': '#F59E0B',
+                                        'target-arrow-color': '#F59E0B'
+                                    }
+                                }
+                            ],
+                            layout: {
+                                name: 'circle',
+                                padding: 50
+                            }
+                        });
+                        
+                        // Обработчики событий для узлов
+                        cy.on('tap', 'node', function(evt) {
+                            const node = evt.target;
+                            const actorId = node.data('id');
+                            gameState.selectedActor = actors.value.find(a => a.id === actorId);
+                            gameState.selectedAction = null;
+                            
+                            // Сбрасываем выделение
+                            cy.elements().removeClass('highlighted');
+                            // Выделяем выбранный узел
+                            node.addClass('highlighted');
+                        });
+                        
+                        // Обработчики событий для ребер
+                        cy.on('tap', 'edge', function(evt) {
+                            const edge = evt.target;
+                            const actionId = edge.data('id');
+                            gameState.selectedAction = actions.value.find(a => a.id === actionId);
+                            gameState.selectedActor = null;
+                            
+                            // Сбрасываем выделение
+                            cy.elements().removeClass('highlighted');
+                            // Выделяем выбранное ребро
+                            edge.addClass('highlighted');
+                        });
+                    }
+                    
+                    // Обновляем элементы
+                    const elements = [];
+                    
+                    // Добавляем узлы (акторов)
+                    actors.value.forEach(actor => {
+                        elements.push({
+                            data: { 
+                                id: actor.id, 
+                                name: actor.name,
+                                type: actor.type,
+                                parameters: actor.parameters
+                            }
+                        });
+                    });
+                    
+                    // Добавляем ребра (действия)
+                    actions.value.forEach(action => {
+                        elements.push({
+                            data: {
+                                id: action.id,
+                                source: action.source,
+                                target: action.target,
+                                name: action.name,
+                                baseValue: action.baseValue
+                            }
+                        });
+                    });
+                    
+                    cy.elements().remove();
+                    cy.add(elements);
+                    cy.layout({ name: 'circle', padding: 50 }).run();
+                };
+                
+                // Методы управления симуляцией
+                const startSimulation = () => {
+                    if (!gameState.isRunning) {
+                        gameState.isRunning = true;
+                        initializeSimulation();
+                        gameState.simulationInterval = setInterval(stepSimulation, gameState.simulationSpeed);
+                        simulationHistory.value.push(`Симуляция запущена на ходу ${gameState.currentTurn}`);
+                    }
+                };
+                
+                const pauseSimulation = () => {
+                    gameState.isRunning = false;
+                    if (gameState.simulationInterval) {
+                        clearInterval(gameState.simulationInterval);
+                        gameState.simulationInterval = null;
+                        simulationHistory.value.push(`Симуляция приостановлена на ходу ${gameState.currentTurn}`);
+                    }
+                };
+                
+                const stepSimulation = () => {
+                    gameState.currentTurn++;
+                    processTurn();
+                };
+                
+                const resetSimulation = () => {
+                    pauseSimulation();
+                    gameState.currentTurn = 0;
+                    gameState.currentActor = null;
+                    gameState.turnQueue = [];
+                    simulationHistory.value = [];
+                    
+                    // Сброс параметров акторов к исходным
+                    actors.value.forEach(actor => {
+                        if (actor.id === 'player') {
+                            actor.parameters = { health: 100, energy: 50, attack: 10, defense: 5 };
+                            actor.activeModifiers = [];
+                        } else if (actor.id === 'enemy') {
+                            actor.parameters = { health: 80, energy: 40, attack: 8, defense: 3 };
+                            actor.activeModifiers = [];
+                        } else if (actor.id === 'world') {
+                            actor.parameters = { resources: 100 };
+                            actor.activeModifiers = [];
+                        }
+                        // Для пользовательских акторов оставляем параметры как есть
+                    });
+                    
+                    simulationHistory.value.push("Симуляция сброшена");
+                };
+                
+                // Методы для навигации графа
+                const fitGraph = () => {
+                    if (cy) {
+                        cy.fit();
+                    }
+                };
+                
+                const resetView = () => {
+                    if (cy) {
+                        cy.reset();
+                        cy.fit();
+                    }
+                };
+                
+                // Обновление интервала при изменении скорости
+                watch(() => gameState.simulationSpeed, (newSpeed) => {
+                    if (gameState.isRunning && gameState.simulationInterval) {
+                        clearInterval(gameState.simulationInterval);
+                        gameState.simulationInterval = setInterval(stepSimulation, newSpeed);
+                    }
+                });
+                
+                // Инициализация Cytoscape после монтирования компонента
+                onMounted(() => {
+                    initCytoscape();
+                });
+                
+                return {
+                    gameState,
+                    actors,
+                    actions,
+                    modifiers,
+                    simulationHistory,
+                    activeConstructorTab,
+                    showActorForm,
+                    editingActor,
+                    actorForm,
+                    showActionForm,
+                    editingAction,
+                    actionForm,
+                    showModifierForm,
+                    editingModifier,
+                    modifierForm,
+                    getActorName,
+                    getModifierTypeName,
+                    getParameterClass,
+                    editActor,
+                    saveActor,
+                    deleteActor,
+                    cancelActorEdit,
+                    editAction,
+                    saveAction,
+                    deleteAction,
+                    cancelActionEdit,
+                    editModifier,
+                    saveModifier,
+                    deleteModifier,
+                    cancelModifierEdit,
+                    startSimulation,
+                    pauseSimulation,
+                    stepSimulation,
+                    resetSimulation,
+                    fitGraph,
+                    resetView
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
